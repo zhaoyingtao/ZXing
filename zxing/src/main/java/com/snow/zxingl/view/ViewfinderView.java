@@ -1,19 +1,3 @@
-/*
- * Copyright (C) 2008 ZXing authors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.snow.zxingl.view;
 
 import android.content.Context;
@@ -29,6 +13,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.SweepGradient;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.View;
 
@@ -70,7 +55,7 @@ public final class ViewfinderView extends View {
     private final int resultPointColor;
     private int scannerAlpha;
     //扫描区域提示文本
-    private final String labelText;
+    private String labelText;
     //扫描区域提示文本颜色
     private final int labelTextColor;
     private final float labelTextSize;
@@ -172,13 +157,24 @@ public final class ViewfinderView extends View {
         paint.setColor(labelTextColor);
         paint.setTextSize(labelTextSize);
         paint.setTextAlign(Paint.Align.CENTER);
-        if (labelTextBottom) {
-            canvas.drawText(labelText, frame.left + frame.width() / 2, frame.bottom + CORNER_RECT_HEIGHT + 10, paint);
-        } else {
-            canvas.drawText(labelText, frame.left + frame.width() / 2, frame.top - CORNER_RECT_HEIGHT, paint);
+        if (!TextUtils.isEmpty(labelText)) {
+            if (labelTextBottom) {
+                canvas.drawText(labelText, frame.left + frame.width() / 2, frame.bottom + CORNER_RECT_HEIGHT + 10, paint);
+            } else {
+                canvas.drawText(labelText, frame.left + frame.width() / 2, frame.top - CORNER_RECT_HEIGHT, paint);
+            }
         }
     }
 
+    /**
+     * 设置提示语
+     *
+     * @param labelStr
+     */
+    public void setTextInfo(String labelStr) {
+        labelText = labelStr;
+        invalidate();
+    }
 
     //绘制边角
     private void drawCorner(Canvas canvas, Rect frame) {

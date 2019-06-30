@@ -1,8 +1,10 @@
 package com.snow.zxing;
 
+import android.Manifest;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
@@ -11,6 +13,9 @@ import android.widget.TextView;
 
 import com.snow.zxingl.activity.CaptureActivity;
 import com.snow.zxingl.encoding.QRCodeUtil;
+
+import static com.snow.zxingl.activity.CaptureActivity.IS_SHOW_REMIND;
+import static com.snow.zxingl.activity.CaptureActivity.REMIND_STRING;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -36,9 +41,17 @@ public class MainActivity extends AppCompatActivity {
                 imageView.setImageBitmap(bitmap2);
         });
         findViewById(R.id.btn_03).setOnClickListener(view -> {
-            startActivityForResult(new Intent(MainActivity.this, CaptureActivity.class)
+            Intent intent = new Intent(MainActivity.this, CaptureActivity.class);
+            intent.putExtra(REMIND_STRING, "提示语句");
+            intent.putExtra(IS_SHOW_REMIND, true);//可以不设置
+            startActivityForResult(intent
                     , CaptureActivity.REQ_CODE);
         });
+
+        //请求相机权限
+        if (Build.VERSION.SDK_INT >= 23) {
+            requestPermissions(new String[]{Manifest.permission.CAMERA}, 101);
+        }
     }
 
     @Override

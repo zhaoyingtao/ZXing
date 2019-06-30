@@ -1,29 +1,35 @@
 package com.snow.zxingl.activity;
 
 import android.app.ProgressDialog;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
-import android.database.Cursor;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.hardware.Camera;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Message;
 import android.os.Vibrator;
 import android.provider.MediaStore;
 import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
 import android.text.TextUtils;
-import android.view.Menu;
-import android.view.MenuItem;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceHolder.Callback;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.zxing.BarcodeFormat;
@@ -40,6 +46,7 @@ import com.snow.zxingl.camera.CameraManager;
 import com.snow.zxingl.decoding.CaptureActivityHandler;
 import com.snow.zxingl.decoding.InactivityTimer;
 import com.snow.zxingl.decoding.RGBLuminanceSource;
+import com.snow.zxingl.util.ScanBitmapUtil;
 import com.snow.zxingl.view.ViewfinderView;
 
 import java.io.IOException;
@@ -56,6 +63,10 @@ public class CaptureActivity extends AppCompatActivity implements Callback {
 
     private static final int REQUEST_CODE_SCAN_GALLERY = 100;
     public static final int REQ_CODE = 156;
+    //扫面框下的提示语 传值的key
+    public static final String REMIND_STRING = "remindString";
+    //是否显示扫描框的提示文字  传值的key
+    public static final String IS_SHOW_REMIND = "isShowRemindStr";
 
     private CaptureActivityHandler handler;
     private ViewfinderView viewfinderView;
@@ -71,60 +82,95 @@ public class CaptureActivity extends AppCompatActivity implements Callback {
     private String photo_path;
     private Bitmap scanBitmap;
     public static final String INTENT_EXTRA_KEY_QR_SCAN = "qr_scan_result";
-
+    private TextView tv_ablum;
     private static final long VIBRATE_DURATION = 200L;
+    private SensorManager sensorManager;
+    private Camera.Parameters parameter;
+    private ImageView iv_flash_light;//闪光灯标志
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+//        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_scanner);
+
+        initView();
+        tv_ablum.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openSystemPicture();
+            }
+        });
+        findViewById(R.id.back_ll).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                finish();
+            }
+        });
+        //判断有闪光灯再去做亮度监听
+        if (getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH)) {
+            //亮度监听器
+            sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+            Sensor sensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
+            sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_NORMAL);
+        }
+        iv_flash_light.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (parameter == null) {
+                    parameter = CameraManager.get().getCamera().getParameters();
+                }
+                String flashMode = parameter.getFlashMode();
+                if ("torch".equals(flashMode)) {
+                    closeFlashLight();
+                } else if ("off".equals(flashMode)) {
+                    openFlashLight();
+                }
+            }
+        });
+    }
+
+    private void initView() {
         CameraManager.init(getApplication());
         viewfinderView = findViewById(R.id.viewfinder_content);
+        tv_ablum = findViewById(R.id.tv_ablum);
+        iv_flash_light = findViewById(R.id.iv_flash_light);
+        ImageView iv_back = findViewById(R.id.iv_back);
+        iv_back.setColorFilter(Color.WHITE);
+        iv_flash_light.setColorFilter(Color.WHITE);
         hasSurface = false;
         inactivityTimer = new InactivityTimer(this);
+        String remindStr = getIntent().getStringExtra(REMIND_STRING);
+        boolean isShowRemind = getIntent().getBooleanExtra(IS_SHOW_REMIND, true);
+        if (!TextUtils.isEmpty(remindStr) && isShowRemind) {
+            viewfinderView.setTextInfo(remindStr);
+        } else {
+            viewfinderView.setTextInfo("");
+        }
     }
 
 
     @Override
-    protected void onActivityResult(final int requestCode, int resultCode, Intent data) {
-        if (requestCode==RESULT_OK) {
+    protected void onActivityResult(final int requestCode, int resultCode, final Intent data) {
+        if (resultCode == RESULT_OK) {
             switch (requestCode) {
                 case REQUEST_CODE_SCAN_GALLERY:
-                    //获取选中图片的路径
-                    Cursor cursor = getContentResolver().query(data.getData(), null, null, null, null);
-                    if (cursor.moveToFirst()) {
-                        photo_path = cursor.getString(cursor.getColumnIndex(MediaStore.Images.Media.DATA));
-                    }
-                    cursor.close();
                     mProgress = new ProgressDialog(CaptureActivity.this);
                     mProgress.setMessage("正在扫描...");
                     mProgress.setCancelable(false);
                     mProgress.show();
-                    new Thread(new Runnable() {
+                    runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            Result result = scanningImage(photo_path);
+                            mProgress.dismiss();
+                            Result result = scanningImage(data.getData());
                             if (result != null) {
-//                                Message m = handler.obtainMessage();
-//                                m.what = R.id.decode_succeeded;
-//                                m.obj = result.getText();
-//                                handler.sendMessage(m);
-                                Intent resultIntent = new Intent();
-                                Bundle bundle = new Bundle();
-                                bundle.putString(INTENT_EXTRA_KEY_QR_SCAN ,result.getText());
-//                                Logger.d("saomiao",result.getText());
-//                                bundle.putParcelable("bitmap",result.get);
-                                resultIntent.putExtras(bundle);
-                                CaptureActivity.this.setResult(RESULT_OK, resultIntent);
-
+                                setResultFinish(result.getText());
                             } else {
-                                Message m = handler.obtainMessage();
-                                m.what = R.id.decode_failed;
-                                m.obj = "Scan failed!";
-                                handler.sendMessage(m);
+                                Toast.makeText(CaptureActivity.this, "未发现二维码", Toast.LENGTH_SHORT).show();
                             }
                         }
-                    }).start();
+                    });
                     break;
             }
         }
@@ -133,26 +179,16 @@ public class CaptureActivity extends AppCompatActivity implements Callback {
 
     /**
      * 扫描二维码图片的方法
-     * @param path
+     *
+     * @param uri
      * @return
      */
-    public Result scanningImage(String path) {
-        if(TextUtils.isEmpty(path)){
-            return null;
-        }
+    public Result scanningImage(Uri uri) {
+        scanBitmap = ScanBitmapUtil.decodeUri(this, uri, 500, 500);
+
         Hashtable<DecodeHintType, String> hints = new Hashtable<>();
         hints.put(DecodeHintType.CHARACTER_SET, "UTF8"); //设置二维码内容的编码
 
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inJustDecodeBounds = true; // 先获取原大小
-        scanBitmap = BitmapFactory.decodeFile(path, options);
-        options.inJustDecodeBounds = false; // 获取新的大小
-        int sampleSize = (int) (options.outHeight / (float) 200);
-        if (sampleSize <= 0){
-            sampleSize = 1;
-        }
-        options.inSampleSize = sampleSize;
-        scanBitmap = BitmapFactory.decodeFile(path, options);
         RGBLuminanceSource source = new RGBLuminanceSource(scanBitmap);
         BinaryBitmap bitmap1 = new BinaryBitmap(new HybridBinarizer(source));
         QRCodeReader reader = new QRCodeReader();
@@ -203,6 +239,9 @@ public class CaptureActivity extends AppCompatActivity implements Callback {
     @Override
     protected void onDestroy() {
         inactivityTimer.shutdown();
+        if (sensorManager != null) {
+            sensorManager.unregisterListener(listener);
+        }
         super.onDestroy();
     }
 
@@ -219,16 +258,8 @@ public class CaptureActivity extends AppCompatActivity implements Callback {
         if (TextUtils.isEmpty(resultString)) {
             Toast.makeText(CaptureActivity.this, "Scan failed!", Toast.LENGTH_SHORT).show();
         } else {
-            Intent resultIntent = new Intent();
-            Bundle bundle = new Bundle();
-            bundle.putString(INTENT_EXTRA_KEY_QR_SCAN, resultString);
-            // 不能使用Intent传递大于40kb的bitmap，可以使用一个单例对象存储这个bitmap
-//            bundle.putParcelable("bitmap", barcode);
-//            Logger.d("saomiao",resultString);
-            resultIntent.putExtras(bundle);
-            this.setResult(RESULT_OK, resultIntent);
+            setResultFinish(resultString);
         }
-        CaptureActivity.this.finish();
     }
 
     private void initCamera(SurfaceHolder surfaceHolder) {
@@ -319,4 +350,79 @@ public class CaptureActivity extends AppCompatActivity implements Callback {
         }
     };
 
+
+    /**
+     * 回传值
+     *
+     * @param resultStr
+     */
+    private void setResultFinish(String resultStr) {
+        Intent resultIntent = new Intent();
+        Bundle bundle = new Bundle();
+        bundle.putString(INTENT_EXTRA_KEY_QR_SCAN, resultStr);
+        resultIntent.putExtras(bundle);
+        CaptureActivity.this.setResult(RESULT_OK, resultIntent);
+        finish();
+    }
+
+    /**
+     * 打开系统相册
+     */
+    private void openSystemPicture() {
+        Intent intent = new Intent();
+        if (Build.VERSION.SDK_INT < 19) {
+            intent.setAction(Intent.ACTION_GET_CONTENT);
+            intent.setType("image/*");
+        } else {
+            intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+            intent.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
+        }
+        startActivityForResult(intent, REQUEST_CODE_SCAN_GALLERY);
+    }
+
+    /**
+     * 光亮度的监听
+     */
+    private SensorEventListener listener = new SensorEventListener() {
+        @Override
+        public void onSensorChanged(SensorEvent event) {
+            // values数组中第一个下标的值就是当前的光照强度
+            float value = event.values[0];
+            if (value < 20) {
+                iv_flash_light.setVisibility(View.VISIBLE);
+            } else {
+                iv_flash_light.setVisibility(View.GONE);
+            }
+//            Log.e("zsd", "当前亮度为" + value + " lx");
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {
+        }
+
+    };
+
+    /**
+     * 关闭闪光灯
+     */
+    private void closeFlashLight() {
+        if (parameter == null) {
+            parameter = CameraManager.get().getCamera().getParameters();
+        }
+        //关闭闪光灯
+        parameter.setFlashMode(Camera.Parameters.FLASH_MODE_OFF);
+        CameraManager.get().getCamera().setParameters(parameter);
+    }
+
+    /**
+     * 打开闪光灯
+     */
+    private void openFlashLight() {
+        if (parameter == null) {
+            parameter = CameraManager.get().getCamera().getParameters();
+        }
+        //打开闪光灯
+        parameter.setFlashMode(Camera.Parameters.FLASH_MODE_TORCH);
+        CameraManager.get().getCamera().setParameters(parameter);
+    }
 }
