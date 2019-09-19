@@ -46,3 +46,5 @@ startActivityForResult(new Intent(MainActivity.this, CaptureActivity.class)
 
 
 最后要是需要自定义扫描页面，可以参考CaptureActivity类进行自定义
+
+[使用文档](https://blog.csdn.net/qq_31796651/article/details/88398751)
